@@ -1,3 +1,4 @@
+from .banner_grabber import grab_banner
 import socket
 
 COMMON_PORTS = {
@@ -5,7 +6,7 @@ COMMON_PORTS = {
     22: "SSH",
     23: "TELNET",
     25: "SMTP",
-    80: "HTTP",
+    99: "HTTP",
     443: "HTTPS",
     3306: "MySQL"
 }
@@ -18,25 +19,30 @@ def scan_port(target: str, port: int, timeout: float = 1.0):
     try:
         result = sock.connect_ex((target, port))
         if result == 0:
-            return {
-                "port": port,
-                "service": COMMON_PORTS.get(port, "UNKNOWN"),
-                "status": "open"
-            }
+            return True
     except socket.error:
         pass
     finally:
         sock.close()
 
-    return None
+    return False
 
 
 def scan_target(target: str):
-    open_ports = []
+    results = []
 
-    for port in COMMON_PORTS:
-        result = scan_port(target, port)
-        if result:
-            open_ports.append(result)
+    for port, service in COMMON_PORTS.items():
 
-    return open_ports
+        if not scan_port(target, port):
+            continue
+
+        banner = grab_banner(target, port)
+
+        results.append({
+            "port": port,
+            "service": service,
+            "status": "open",
+            "banner": banner
+        })
+
+    return results
