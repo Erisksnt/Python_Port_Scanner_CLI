@@ -1,7 +1,10 @@
-from scanner.banner_grabber import grab_banner
+from scanner.port_scanner import scan_target
 
-target = "172.16.0.1"
-port = 8099
+target = "localhost"
+results = scan_target(target)
 
-banner = grab_banner(target, port)
-print("Resultado:", banner)
+if not results:
+    print("Nenhuma porta aberta encontrada.")
+else:
+    for r in results:
+        print(r)

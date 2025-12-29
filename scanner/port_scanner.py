@@ -19,14 +19,21 @@ def scan_port(target: str, port: int, timeout: float = 1.0):
     try:
         result = sock.connect_ex((target, port))
         if result == 0:
-            return True
+            banner = grab_banner(target, port)
+
+            return {
+                "port": port,
+                "service": COMMON_PORTS.get(port, "UNKNOWN"),
+                "status": "open",
+                "banner": banner
+            }
+
     except socket.error:
         pass
     finally:
         sock.close()
 
-    return False
-
+    return None 
 
 def scan_target(target: str):
     results = []
