@@ -6,8 +6,9 @@ COMMON_PORTS = {
     22: "SSH",
     23: "TELNET",
     25: "SMTP",
-    99: "HTTP",
+    80: "HTTP",
     443: "HTTPS",
+    8000: "HTTP-ALT",  
     3306: "MySQL"
 }
 
