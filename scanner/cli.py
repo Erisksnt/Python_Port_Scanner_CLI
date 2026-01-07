@@ -1,132 +1,110 @@
-import json
-import csv
 import argparse
-from pathlib import Path
+import csv
+import json
+import socket
 from datetime import datetime
-from zoneinfo import ZoneInfo
+from scanner.banner_grabber import grab_banner
 
-from .port_scanner import scan_port
-from .banner_grabber import grab_banner
+def scan_port(host, port, timeout=0.5):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
 
-
-# -----------------------------
-# Converter GMT → BRT
-# -----------------------------
-def convert_gmt_to_brt(date_line: str):
     try:
-        raw = date_line.replace("Date: ", "").strip()
+        result = sock.connect_ex((host, port))
 
-        dt_utc = datetime.strptime(raw, "%a, %d %b %Y %H:%M:%S GMT")
-        dt_utc = dt_utc.replace(tzinfo=ZoneInfo("UTC"))
+        try:
+            service = socket.getservbyport(port, "tcp")
+        except OSError:
+            service = "unknown"
 
-        dt_brt = dt_utc.astimezone(ZoneInfo("America/Sao_Paulo"))
+        if result == 0:
+            if result == 0:
+                banner = grab_banner(host, port)
+                status = "open"
+            else:
+                banner = ""
+                status = "closed"
 
-        return f"Date (BRT): {dt_brt.strftime('%Y-%m-%d %H:%M:%S')}"
-    except Exception:
-        return date_line
+            return {
+                "port": port,
+                "service": service,
+                "status": status,
+                "banner": banner
+            }
 
+        else:
+            return {
+                "port": port,
+                "service": service,
+                "status": "closed",
+                "banner": ""
+            }
 
-# -----------------------------
-# Scan por range
-# -----------------------------
-def scan_range(host, start, end):
-    results = []
+    finally:
+        sock.close()
 
-    for port in range(start, end + 1):
-        r = scan_port(host, port)
-        if not r:
-            continue
+def export_results(results):
+    print("\nDeseja salvar os resultados?")
+    print("[1] JSON")
+    print("[2] CSV")
+    print("[3] CSV e JSON")
+    print("[0] Não salvar")
+    choice = input("Escolha uma opção: ").strip()
 
-        banner = grab_banner(host, port)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        if banner:
-            lines = banner.split("\n")
-            for i, line in enumerate(lines):
-                if line.startswith("Date:"):
-                    lines[i] = convert_gmt_to_brt(line)
-            banner = "\n".join(lines)
+    if choice == "1":
+        filename = f"scan_{ts}.json"
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2, ensure_ascii=False)
+        print(f"✔ Resultado salvo em {filename}")
 
-        r["banner"] = banner
-        results.append(r)
+    elif choice == "2":
+        filename = f"scan_{ts}.csv"
+        with open(filename, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=["port","service","status","banner"])
+            w.writeheader()
+            for r in results:
+                w.writerow(r)
+        print(f"✔ Resultado salvo em {filename}")
 
-    return results
+    elif choice == "3":
+        filename = f"scan_{ts}.json"
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2, ensure_ascii=False)
+            
+        print(f"✔ Resultado salvo em {filename}")
 
+        filename = f"scan_{ts}.csv"
+        with open(filename, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=["port","service","status","banner"])
+            w.writeheader()
+            for r in results:
+                w.writerow(r)
+        print(f"✔ Resultado salvo em {filename}")
 
-# -----------------------------
-# CLI
-# -----------------------------
+    else:
+        print("⏭ Resultados não foram salvos.")
+
 def main():
-    parser = argparse.ArgumentParser(description="Port Scanner CLI")
-
-    parser.add_argument("--host", required=True, help="Target host/IP")
-    parser.add_argument("--ports", help="Comma-separated list of ports")
-    parser.add_argument("--start-port", type=int, help="Start of port range")
-    parser.add_argument("--end-port", type=int, help="End of port range")
-    parser.add_argument("--json", help="Save results to JSON file")
-    parser.add_argument("--csv", help="Save results to CSV file")
-
+    parser = argparse.ArgumentParser(description="Simple Port Scanner CLI")
+    parser.add_argument("host", help="Host alvo")
+    parser.add_argument("-p", "--ports", default="80,443,8000",
+                        help="Lista de portas (ex: 80,443,8000)")
     args = parser.parse_args()
 
+    host = args.host
+    ports = [int(p.strip()) for p in args.ports.split(",")]
+
+    print(f"\n🔎 Scaneando {host}...🔎\n")
     results = []
 
-    # ---- Lista de portas ----
-    if args.ports:
-        ports = [int(p) for p in args.ports.split(",")]
+    for port in ports:
+        r = scan_port(host, port)
+        results.append(r)
+        print(f"{r['port']},{r['service']},{r['status']}")
 
-        for port in ports:
-            r = scan_port(args.host, port)
-            if not r:
-                continue
-
-            banner = grab_banner(args.host, port)
-
-            if banner:
-                lines = banner.split("\n")
-                for i, line in enumerate(lines):
-                    if line.startswith("Date:"):
-                        lines[i] = convert_gmt_to_brt(line)
-                banner = "\n".join(lines)
-
-            r["banner"] = banner
-            results.append(r)
-
-    # ---- Range de portas ----
-    elif args.start_port and args.end_port:
-        results = scan_range(args.host, args.start_port, args.end_port)
-
-    # ---- Nenhuma opção válida ----
-    else:
-        print("Use --ports ou --start-port + --end-port")
-        return
-
-    if not results:
-        print("Nenhuma porta aberta encontrada.")
-        return
-
-    # ---- Output no terminal ----
-    for r in results:
-        print(f"[+] Porta {r['port']} aberta — {r['service']}")
-        if r.get("banner"):
-            first = r["banner"].split("\n")[0]
-            print(f"    Banner: {first}")
-        print("-" * 40)
-
-    # ---- Salvar JSON ----
-    if args.json:
-        Path(args.json).write_text(
-            json.dumps(results, indent=4, ensure_ascii=False),
-            encoding="utf-8"
-        )
-        print(f"[+] Resultado salvo em {args.json}")
-
-    # ---- Salvar CSV ----
-    if args.csv:
-        with open(args.csv, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=results[0].keys())
-            writer.writeheader()
-            writer.writerows(results)
-        print(f"[+] Resultado salvo em {args.csv}")
-
+    export_results(results)
 
 if __name__ == "__main__":
     main()

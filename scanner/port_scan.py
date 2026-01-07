@@ -8,9 +8,10 @@ COMMON_PORTS = {
     25: "SMTP",
     80: "HTTP",
     443: "HTTPS",
-    8000: "HTTP-ALT",  
+    8000: "HTTP-ALT",
     3306: "MySQL"
 }
+
 def scan_port(target: str, port: int, timeout: float = 0.5):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
@@ -25,28 +26,21 @@ def scan_port(target: str, port: int, timeout: float = 0.5):
                 "status": "open",
                 "banner": banner
             }
-    except socket.error:
-        pass
     finally:
         sock.close()
 
     return None
 
-def scan_target(target: str):
+
+def scan_ports(target: str, ports: list[int]):
     results = []
-
-    for port, service in COMMON_PORTS.items():
-
-        if not scan_port(target, port):
-            continue
-
-        banner = grab_banner(target, port)
-
-        results.append({
-            "port": port,
-            "service": service,
-            "status": "open",
-            "banner": banner
-        })
-
+    for port in ports:
+        r = scan_port(target, port)
+        if r:
+            results.append(r)
     return results
+
+
+def scan_target(target: str):
+    # agora é apenas um atalho para COMMON_PORTS
+    return scan_ports(target, list(COMMON_PORTS.keys()))
