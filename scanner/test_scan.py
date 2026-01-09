@@ -1,4 +1,4 @@
-from scanner.port_scanner import scan_target
+from scanner.port_scan import scan_target
 
 target = "localhost"
 results = scan_target(target)

@@ -1,4 +1,4 @@
-from scanner.port_scanner import scan_target
+from scanner.port_scan import scan_target
 from scanner.report import export_json
 
 target = "localhost"

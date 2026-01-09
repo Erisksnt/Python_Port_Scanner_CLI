@@ -3,12 +3,10 @@ import json
 import csv
 import datetime
 import os
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from scanner.port_scan import scan_port
 
-
 VERBOSE_LEVEL = 0
-
 
 def vlog(level: int, msg: str):
     if VERBOSE_LEVEL >= level:
@@ -18,11 +16,11 @@ def vlog(level: int, msg: str):
 def export_to_csv(path: str, results: list[dict]):
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
-            f,
-            fieldnames=["port", "service", "status", "banner"]
+            f, fieldnames=["port", "service", "status", "banner"]
         )
         writer.writeheader()
-        writer.writerows(results)
+        for row in results:
+            writer.writerow(row)
 
 
 def export_to_json(path: str, results: list[dict]):
@@ -38,54 +36,14 @@ def auto_name(ext: str) -> str:
 
 def parse_ports(ports_str: str) -> list[int]:
     ports = []
-
     for item in ports_str.split(","):
         item = item.strip()
-
         if "-" in item:
             start, end = map(int, item.split("-"))
             ports.extend(range(start, end + 1))
         else:
             ports.append(int(item))
-
     return ports
-
-
-# ---------- OUTPUT TABULAR ----------
-
-def print_table(results: list[dict]):
-    if not results:
-        print("Nenhuma porta aberta encontrada.")
-        return
-
-    headers = ["Port", "Service", "Status"]
-    rows = [
-        [str(r["port"]), r["service"], r["status"]]
-        for r in results
-    ]
-
-    col_widths = [
-        max(len(row[i]) for row in rows + [headers])
-        for i in range(len(headers))
-    ]
-
-    def line(left, mid, right, fill):
-        return left + mid.join(fill * (w + 2) for w in col_widths) + right
-
-    def row(values):
-        return "│ " + " │ ".join(
-            values[i].ljust(col_widths[i])
-            for i in range(len(values))
-        ) + " │"
-
-    print(line("┌", "┬", "┐", "─"))
-    print(row(headers))
-    print(line("├", "┼", "┤", "─"))
-
-    for r in rows:
-        print(row(r))
-
-    print(line("└", "┴", "┘", "─"))
 
 
 def ask_export(results):
@@ -100,12 +58,12 @@ def ask_export(results):
     if choice == "1":
         path = auto_name("csv")
         export_to_csv(path, results)
-        print(f"📁 CSV salvo automaticamente em: {path}")
+        print(f"📁 CSV salvo em: {path}")
 
     elif choice == "2":
         path = auto_name("json")
         export_to_json(path, results)
-        print(f"📁 JSON salvo automaticamente em: {path}")
+        print(f"📁 JSON salvo em: {path}")
 
     elif choice == "3":
         path_csv = auto_name("csv")
@@ -124,74 +82,67 @@ def main():
     parser = argparse.ArgumentParser(description="Simple Port Scanner")
 
     parser.add_argument("host", help="Host alvo do scan")
-
-    parser.add_argument(
-        "-p", "--ports",
-        required=True,
-        help="Lista de portas (ex: 80,443,8000 ou 20-25)"
-    )
-
-    parser.add_argument(
-        "--timeout",
-        type=float,
-        default=0.5,
-        help="Timeout por porta em segundos (default: 0.5)"
-    )
-
+    parser.add_argument("-p", "--ports",required=True,help="Lista de portas")
+    parser.add_argument("--timeout", type=float, default=0.5, help="Timeout por porta em segundos (default: 0.5)")
+    parser.add_argument("--threads",type=int,default=1,help="Número de threads (default: 1)")
     parser.add_argument("--csv", action="store_true", help="Salvar automaticamente em CSV")
     parser.add_argument("--json", action="store_true", help="Salvar automaticamente em JSON")
-
-    parser.add_argument(
-        "-v", "--verbose",
-        action="count",
-        default=0,
-        help="Exibe detalhes do scan (-v, -vv, -vvv)"
-    )
+    parser.add_argument("-v", "--verbose",action="count",default=0,help="Verbose (-v, -vv, -vvv)")
 
     args = parser.parse_args()
     VERBOSE_LEVEL = args.verbose
 
     ports = parse_ports(args.ports)
     host = args.host
-    timeout = args.timeout
 
-    vlog(1, f"[CONFIG] Timeout: {timeout}s")
-
-    print(f"\n🔎 Scaneando {host}...\n")
+    print(f"\n🔎 Scaneando {host} com {args.threads} thread(s)...\n")
 
     results = []
 
-    for port in ports:
-        vlog(1, f"[SCAN] Porta {port}/tcp")
+    with ThreadPoolExecutor(max_workers=args.threads) as executor:
+        futures = {
+            executor.submit(scan_port, host, port, args.timeout): port
+            for port in ports
+        }
 
-        result = scan_port(host, port, timeout=timeout)
+        for future in as_completed(futures):
+            port = futures[future]
 
-        if not result:
-            vlog(2, f"[CLOSED] {port}/tcp")
-            continue
+            try:
+                result = future.result()
+            except Exception as e:
+                vlog(2, f"[ERRO] Porta {port}: {e}")
+                continue
 
-        vlog(1, f"[OPEN] {port}/tcp -> {result['service']}")
-        if result.get("banner"):
-            vlog(3, f"[BANNER]\n{result['banner']}")
+            if not result:
+                vlog(2, f"[CLOSED] {port}/tcp")
+                continue
 
-        results.append(result)
+            vlog(1, f"[OPEN] {result['port']}/tcp -> {result['service']}")
+            if result.get("banner"):
+                vlog(3, f"[BANNER]\n{result['banner']}")
 
-    # ----- OUTPUT -----
-    if VERBOSE_LEVEL == 0:
-        print_table(results)
+            results.append(result)
+
+            if VERBOSE_LEVEL == 0:
+                print(
+                    f"{result['port']:>5} | "
+                    f"{result['service']:<10} | "
+                    f"{result['status']}"
+                )
 
     exported = False
 
     if args.csv:
         path = auto_name("csv")
         export_to_csv(path, results)
-        print(f"\n📁 CSV salvo automaticamente em: {path}")
+        print(f"\n📁 CSV salvo em: {path}")
         exported = True
 
     if args.json:
         path = auto_name("json")
         export_to_json(path, results)
-        print(f"\n📁 JSON salvo automaticamente em: {path}")
+        print(f"\n📁 JSON salvo em: {path}")
         exported = True
 
     if not exported:

@@ -1,5 +1,6 @@
-from .banner_grabber import grab_banner
 import socket
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from .banner_grabber import grab_banner
 
 COMMON_PORTS = {
     21: "FTP",
@@ -9,16 +10,16 @@ COMMON_PORTS = {
     80: "HTTP",
     443: "HTTPS",
     8000: "HTTP-ALT",
-    3306: "MySQL"
+    3306: "MySQL",
 }
+
 
 def scan_port(target: str, port: int, timeout: float = 0.5):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
 
     try:
-        result = sock.connect_ex((target, port))
-        if result == 0:
+        if sock.connect_ex((target, port)) == 0:
             banner = grab_banner(target, port)
             return {
                 "port": port,
@@ -26,21 +27,31 @@ def scan_port(target: str, port: int, timeout: float = 0.5):
                 "status": "open",
                 "banner": banner
             }
+    except Exception:
+        pass
     finally:
         sock.close()
 
     return None
 
 
-def scan_ports(target: str, ports: list[int]):
+def scan_ports(
+    target: str,
+    ports: list[int],
+    timeout: float = 0.5,
+    threads: int = 100
+):
     results = []
-    for port in ports:
-        r = scan_port(target, port)
-        if r:
-            results.append(r)
-    return results
 
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = {
+            executor.submit(scan_port, target, port, timeout): port
+            for port in ports
+        }
 
-def scan_target(target: str):
-    # agora é apenas um atalho para COMMON_PORTS
-    return scan_ports(target, list(COMMON_PORTS.keys()))
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                results.append(result)
+
+    return sorted(results, key=lambda x: x["port"]) # Get order the doors

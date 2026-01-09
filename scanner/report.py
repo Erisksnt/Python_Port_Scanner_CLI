@@ -1,6 +1,5 @@
 import json
 
-
 def export_json(results, filename="scan_result.json"):
     data = {
         "results": results
