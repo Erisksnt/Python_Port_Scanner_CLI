@@ -131,4 +131,3 @@ Este projeto demonstra:
 - Entendimento real de redes e segurança
 - Uso eficiente de threading
 - Boas práticas de CLI e versionamento
-
