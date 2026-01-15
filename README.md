@@ -1,4 +1,4 @@
-# 🔍 PortInspector
+# 🔍 SurfaceScan
 
 Um **scanner de portas TCP** desenvolvido em Python, com foco em performance, organização de código e boas práticas profissionais.\
 Projeto pensado para demonstrar habilidades em **redes, segurança, threading, design modular e uso real de CLI**.
